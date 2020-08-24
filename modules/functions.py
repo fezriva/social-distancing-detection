@@ -3,8 +3,13 @@ import cv2
 import numpy as np
 
 # algorithm to choose four points from a predefined image
-def choosePoints(image, num_points):
+def choosePoints(image, num_points, string):
 
+    (H, W) = image.shape[:2]
+
+    text = "Action: {}\nPress c to confirm the selection, r to restart".format(string)
+    cv2.putText(image, text, (10, H - ((i * 20) + 20)),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     refPt = []
 
     def mouse_event(event, x, y, flags, param):

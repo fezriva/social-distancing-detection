@@ -22,6 +22,8 @@ import os
 ap = argparse.ArgumentParser()
 ap.add_argument("-i", "--input", type=str, default="",
 	help="path to (optional) input video file")
+ap.add_argument("-t", "--top_view", type=int, default=1,
+	help="has the original video a view from the top (birdview)? (1 if yes, 0 if no)")
 ap.add_argument("-b", "--birdview", type=str, default="",
 	help="path to birdeye view image")
 ap.add_argument("-c", "--csv", type=str, default="",
@@ -88,24 +90,30 @@ totalViolations = 0
 
 # grab the first frame and set the BirdView image
 frame = vs.read()
-frame = frame[1] if args.get("input", False) else frame
-frame = imutils.resize(frame, width=900)
-image = cv2.imread(args["birdview"])
-clone = image.copy()
+image = warped = frame
+(H, W) = (H_frame, W_frame) = frame.shape[:2]
 
-(H_frame, W_frame) = frame.shape[:2]
-(H, W) = image.shape[:2]
+if args["top_view"] == 0:
+	frame = frame[1] if args.get("input", False) else frame
+	frame = imutils.resize(frame, width=900)
+	image = cv2.imread(args["birdview"])
+	clone = image.copy()
 
-# initialize the list of reference points for the perspective warp
-pts = fun.choosePoints(frame, 4)
-anchor_pts = fun.choosePoints(image, 4)
+	(H, W) = image.shape[:2]
 
-# apply the four point tranform to obtain a "birds eye view" of
-# the image
-Transform_Matrix = four_point_transform(pts, anchor_pts)
+	# initialize the list of reference points for the perspective warp
+	pts = fun.choosePoints(frame, 4, "Choose 4 strategically placed anchor points (ex: the base of a statue)")
+	anchor_pts = fun.choosePoints(image, 4, "Point out where the points you choose before are in this image")
 
-# choose the min_distance between two pedestrians
-min_distance_pts = fun.choosePoints(image, 2)
+	# apply the four point tranform to obtain a "birds eye view" of
+	# the image
+	Transform_Matrix = four_point_transform(pts, anchor_pts)
+
+	# choose the min_distance between two pedestrians
+	min_distance_pts = fun.choosePoints(image, 2, "Choose 2 points that will determine the minimum safe distance")
+else:
+	min_distance_pts = fun.choosePoints(frame, 2, "Choose 2 points that will determine the minimum safe distance")
+
 pt_1 = min_distance_pts[0]
 pt_2 = min_distance_pts[1]
 min_distance = math.sqrt((pt_1[0] - pt_2[0])**2 + (pt_1[1] - pt_2[1])**2)
@@ -116,7 +124,7 @@ fps = FPS().start()
 # create the csv file and initialize it
 if args["csv"] is not None:
 	csv = open(args["csv"], "w")
-	print("ID", "frame", "coordX", "coordY", "violationsNumber", "avgViolationTime", "maxViolationTime", sep=",", file=csv)
+	print("ID", "frame", "coordX", "coordY", "trackedFor", "violationsNumber", "avgViolationTime", "maxViolationTime", sep=",", file=csv)
 
 
 # loop over frames from the video stream
@@ -141,7 +149,10 @@ while True:
 	frame = imutils.resize(frame, width=900)
 	rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-	image = clone.copy()
+	if args["top_view"] == 0:
+		image = clone.copy()
+		warped = cv2.warpPerspective(frame, Transform_Matrix, (W, H))
+
 
 	# if we are supposed to be writing a video to disk, initialize
 	# the writer
@@ -227,11 +238,14 @@ while True:
 	objects_top = OrderedDict()
 	violation_pairs = []
 
-	#convert objects centroid into birdeyeview objects_top
-	for (objectID, centroid) in objects.items():
-		# calculate centroid coordinates from the top
-		tf_centroid = fun.calculate_warped_coordinates(centroid, Transform_Matrix)
-		objects_top[objectID] = tf_centroid
+	if args["top_view"] == 0:
+		#convert objects centroid into birdeyeview objects_top
+		for (objectID, centroid) in objects.items():
+			# calculate centroid coordinates from the top
+			tf_centroid = fun.calculate_warped_coordinates(centroid, Transform_Matrix)
+			objects_top[objectID] = tf_centroid
+	else:
+		objects_top = objects
 
 	# ensure there are *at least* two people detections (required in
 	# order to compute our pairwise distance maps)
@@ -280,6 +294,7 @@ while True:
 						inactiveIDs.append(objectID)
 				# store the centroid in the list
 				to.centroids.append(centroid)
+				to.trackedFor += 1
 
 				if objectID in violate:
 					# add object to permanent violation set
@@ -325,7 +340,7 @@ while True:
 
 				avgVT = sumVT/violationsNumber
 
-			print(to.objectID, totalFrames, coordX, coordY, violationsNumber, avgVT, maxVT, sep=",", file=csv)
+			print(to.objectID, totalFrames, coordX, coordY, to.trackedFor, violationsNumber, avgVT, maxVT, sep=",", file=csv)
 
 		if to.active:
 			color = (0, 255, 0)
@@ -336,9 +351,22 @@ while True:
 			# draw both the ID of the object and the centroid of the
 			# object on the output frame
 			text = "ID {}".format(objectID)
-			cv2.putText(image, text, (centroid[0] - 10, centroid[1] - 10),
+
+			if args["top_view"] == 0:
+				# on the image
+				cv2.putText(image, text, (centroid[0] - 10, centroid[1] - 10),
+					cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+				cv2.circle(image, (centroid[0], centroid[1]), 3, color, -1)
+				# on the warped frame
+				cv2.putText(warped, text, (centroid[0] - 10, centroid[1] - 10),
+					cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+				cv2.circle(warped, (centroid[0], centroid[1]), 3, color, -1)
+
+			# on the original frame
+			orig_centroid = objects[objectID]
+			cv2.putText(frame, text, (orig_centroid[0] - 10, orig_centroid[1] - 10),
 				cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-			cv2.circle(image, (centroid[0], centroid[1]), 3, color, -1)
+			cv2.circle(frame, (orig_centroid[0], orig_centroid[1]), 3, color, -1)
 
 	# construct a tuple of information we will be displaying on the
 	# frame
@@ -350,8 +378,13 @@ while True:
 	# loop over the info tuples and draw them on our frame
 	for (i, (k, v)) in enumerate(info):
 		text = "{}: {}".format(k, v)
-		cv2.putText(image, text, (10, H - ((i * 20) + 20)),
+		cv2.putText(frame, text, (10, H_frame - ((i * 20) + 20)),
 			cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+		if args[top_view] == 0:
+			cv2.putText(image, text, (10, H - ((i * 20) + 20)),
+				cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+			cv2.putText(warped, text, (10, H_frame - ((i * 20) + 20)),
+				cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
 
 	# check to see if we should write the frame to disk
@@ -359,8 +392,10 @@ while True:
 		writer.write(image)
 
 	# show the output frame
-	cv2.imshow("BirdView", image)
 	cv2.imshow("Original", frame)
+	if args[top_view] == 0:
+		cv2.imshow("Warped", warped)
+		cv2.imshow("BirdView", image)
 	key = cv2.waitKey(1) & 0xFF
 
 	# if the `q` key was pressed, break from the loop
