@@ -91,7 +91,7 @@ totalViolations = 0
 # grab the first frame and set the BirdView image
 frame = vs.read()
 image = warped = frame
-(H, W) = (H_frame, W_frame) = frame.shape[:2]
+(H, W) = (H_frame, W_frame) = (0, 0)
 
 if args["top_view"] == 0:
 	frame = frame[1] if args.get("input", False) else frame
@@ -99,6 +99,7 @@ if args["top_view"] == 0:
 	image = cv2.imread(args["birdview"])
 	clone = image.copy()
 
+	(H_frame, W_frame) = frame.shape[:2]
 	(H, W) = image.shape[:2]
 
 	# initialize the list of reference points for the perspective warp
@@ -148,6 +149,9 @@ while True:
 	# the frame from BGR to RGB for dlib
 	frame = imutils.resize(frame, width=900)
 	rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+	if (H_frame, W_frame) == (0,0):
+		(H_frame, W_frame) = frame.shape[:2]
 
 	if args["top_view"] == 0:
 		image = clone.copy()
@@ -380,7 +384,7 @@ while True:
 		text = "{}: {}".format(k, v)
 		cv2.putText(frame, text, (10, H_frame - ((i * 20) + 20)),
 			cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-		if args[top_view] == 0:
+		if args["top_view"] == 0:
 			cv2.putText(image, text, (10, H - ((i * 20) + 20)),
 				cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 			cv2.putText(warped, text, (10, H_frame - ((i * 20) + 20)),
@@ -393,7 +397,7 @@ while True:
 
 	# show the output frame
 	cv2.imshow("Original", frame)
-	if args[top_view] == 0:
+	if args["top_view"] == 0:
 		cv2.imshow("Warped", warped)
 		cv2.imshow("BirdView", image)
 	key = cv2.waitKey(1) & 0xFF
