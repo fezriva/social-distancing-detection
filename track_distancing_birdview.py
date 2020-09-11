@@ -393,7 +393,7 @@ while True:
 
 	# check to see if we should write the frame to disk
 	if writer is not None:
-		writer.write(image)
+		writer.write(frame)
 
 	# show the output frame
 	cv2.imshow("Original", frame)
